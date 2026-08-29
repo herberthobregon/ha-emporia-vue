@@ -31,6 +31,9 @@ from .const import (
     SOLAR_INVERT,
     TOKEN_CONFIG_FLOW_SCHEMA,
 )
+from .pycognito_compat import apply_pycognito_at_hash_compat
+
+apply_pycognito_at_hash_compat()
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 SENSITIVE_CONFIG_KEYS = {

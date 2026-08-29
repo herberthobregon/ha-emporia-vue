@@ -51,7 +51,10 @@ from .const import (
     SOLAR_INVERT,
     VUE_DATA,
 )
+from .pycognito_compat import apply_pycognito_at_hash_compat
 from .resilience import TolerantUpdateMethod, is_newer_sample
+
+apply_pycognito_at_hash_compat()
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 
