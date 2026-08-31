@@ -17,7 +17,13 @@ ENABLE_1S = "enable_1s"
 ENABLE_1M = "enable_1m"
 ENABLE_1D = "enable_1d"
 ENABLE_1MON = "enable_1mon"
+ENABLE_AMPS = "enable_amps"
+ENABLE_VOLTS = "enable_volts"
 SOLAR_INVERT = "solar_invert"
+CONF_COST_PER_KWH = "cost_per_kwh"
+CONF_COST_CURRENCY = "cost_currency"
+DEFAULT_COST_PER_KWH = 1.0
+DEFAULT_COST_CURRENCY = "USD"
 CUSTOMER_GID = "customer_gid"
 CONFIG_TITLE = "title"
 
@@ -36,7 +42,13 @@ CONFIG_OPTIONS_SCHEMA = {
     vol.Optional(ENABLE_1M, default=True): cv.boolean,
     vol.Optional(ENABLE_1D, default=True): cv.boolean,
     vol.Optional(ENABLE_1MON, default=True): cv.boolean,
+    vol.Optional(ENABLE_AMPS, default=True): cv.boolean,
+    vol.Optional(ENABLE_VOLTS, default=True): cv.boolean,
     vol.Optional(SOLAR_INVERT, default=True): cv.boolean,
+    vol.Optional(CONF_COST_PER_KWH, default=DEFAULT_COST_PER_KWH): vol.All(
+        vol.Coerce(float), vol.Range(min=0)
+    ),
+    vol.Optional(CONF_COST_CURRENCY, default=DEFAULT_COST_CURRENCY): cv.string,
 }
 
 CONFIG_FLOW_SCHEMA = vol.Schema(

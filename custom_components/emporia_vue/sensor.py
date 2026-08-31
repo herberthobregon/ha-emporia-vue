@@ -12,13 +12,26 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfEnergy, UnitOfPower, UnitOfTime
+from homeassistant.const import (
+    UnitOfElectricCurrent,
+    UnitOfElectricPotential,
+    UnitOfEnergy,
+    UnitOfPower,
+    UnitOfTime,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import (
+    CONF_COST_CURRENCY,
+    CONF_COST_PER_KWH,
+    DOMAIN,
+    ENABLE_AMPS,
+    ENABLE_VOLTS,
+)
+from .metrics import amp_hours_to_amps, energy_cost, is_line_voltage_channel
 from .resilience import TolerantUpdateMethod
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
@@ -39,22 +52,56 @@ async def async_setup_entry(
 
     _LOGGER.info(hass.data[DOMAIN][config_entry.entry_id])
 
+    entry_store = hass.data[DOMAIN][config_entry.entry_id]
+    enable_amps = entry_store.get(ENABLE_AMPS, False)
+    enable_volts = entry_store.get(ENABLE_VOLTS, False)
+    cost_per_kwh = float(entry_store.get(CONF_COST_PER_KWH, 1.0))
+    cost_currency = entry_store.get(CONF_COST_CURRENCY, "USD")
+
     if coordinator_1min:
         async_add_entities(
             CurrentVuePowerSensor(coordinator_1min, identifier)
-            for _, identifier in enumerate(coordinator_1min.data)
+            for identifier in coordinator_1min.data
+            if coordinator_1min.data[identifier].get("has_energy", True)
         )
+        if enable_amps:
+            async_add_entities(
+                CurrentVueAmpsSensor(coordinator_1min, identifier)
+                for identifier in coordinator_1min.data
+                if coordinator_1min.data[identifier].get("amp_hours") is not None
+            )
+        if enable_volts:
+            async_add_entities(
+                CurrentVueVoltsSensor(coordinator_1min, identifier)
+                for identifier in coordinator_1min.data
+                if is_line_voltage_channel(
+                    coordinator_1min.data[identifier]["channel_num"]
+                )
+                and coordinator_1min.data[identifier].get("volts") is not None
+            )
 
     if coordinator_1mon:
         async_add_entities(
             CurrentVuePowerSensor(coordinator_1mon, identifier)
-            for _, identifier in enumerate(coordinator_1mon.data)
+            for identifier in coordinator_1mon.data
+        )
+        async_add_entities(
+            VueEnergyCostSensor(
+                coordinator_1mon, identifier, cost_per_kwh, cost_currency
+            )
+            for identifier in coordinator_1mon.data
         )
 
     if coordinator_day_sensor:
         async_add_entities(
             CurrentVuePowerSensor(coordinator_day_sensor, identifier)
-            for _, identifier in enumerate(coordinator_day_sensor.data)
+            for identifier in coordinator_day_sensor.data
+        )
+        async_add_entities(
+            VueEnergyCostSensor(
+                coordinator_day_sensor, identifier, cost_per_kwh, cost_currency
+            )
+            for identifier in coordinator_day_sensor.data
         )
 
     retry_update_methods: dict[str, TolerantUpdateMethod] = hass.data[DOMAIN][
@@ -130,29 +177,7 @@ class CurrentVuePowerSensor(CoordinatorEntity, SensorEntity):  # type: ignore
     @property
     def device_info(self) -> DeviceInfo:
         """Return the device info."""
-        device_name = self._channel.name
-        if not device_name:
-            # An unnamed *numbered* channel is a CT that has not been configured
-            # in the Emporia app. Falling back to the monitor's name gives every
-            # such channel an identical name, so a Vue with spare channels shows
-            # up as a pile of same-named devices (#379, #328).
-            # Aggregate channels ("1,2,3", MainsFromGrid, Balance, ...) legitimately
-            # represent the monitor itself, so those keep the monitor's name.
-            if self._channel.channel_num.isdigit():
-                device_name = (
-                    f"{self._device.device_name} Circuit {self._channel.channel_num}"
-                )
-            else:
-                device_name = self._device.device_name
-        return DeviceInfo(
-            identifiers={
-                (DOMAIN, f"{self._device.device_gid}-{self._channel.channel_num}")
-            },
-            name=device_name,
-            model=self._device.model,
-            sw_version=self._device.firmware,
-            manufacturer="Emporia",
-        )
+        return vue_channel_device_info(self._device, self._channel)
 
     @property
     def last_reset(self) -> datetime | None:
@@ -211,6 +236,178 @@ class CurrentVuePowerSensor(CoordinatorEntity, SensorEntity):  # type: ignore
         if self._scale == Scale.MONTH.value:
             return "This Month"
         return self._scale
+
+
+def vue_channel_device_info(
+    device: VueDevice, channel: VueDeviceChannel
+) -> DeviceInfo:
+    """Return the Home Assistant device info for a Vue channel."""
+    device_name = channel.name
+    if not device_name:
+        # An unnamed *numbered* channel is a CT that has not been configured
+        # in the Emporia app. Falling back to the monitor's name gives every
+        # such channel an identical name, so a Vue with spare channels shows
+        # up as a pile of same-named devices (#379, #328).
+        # Aggregate channels ("1,2,3", MainsFromGrid, Balance, ...) legitimately
+        # represent the monitor itself, so those keep the monitor's name.
+        if channel.channel_num.isdigit():
+            device_name = f"{device.device_name} Circuit {channel.channel_num}"
+        else:
+            device_name = device.device_name
+    return DeviceInfo(
+        identifiers={(DOMAIN, f"{device.device_gid}-{channel.channel_num}")},
+        name=device_name,
+        model=device.model,
+        sw_version=device.firmware,
+        manufacturer="Emporia",
+    )
+
+
+def _channel_for_identifier(coordinator_data: dict, identifier: str) -> VueDeviceChannel:
+    """Resolve the Vue channel metadata used by a coordinator identifier."""
+    device_gid: int = coordinator_data[identifier]["device_gid"]
+    channel_num: str = coordinator_data[identifier]["channel_num"]
+    device: VueDevice = coordinator_data[identifier]["info"]
+    for channel in device.channels:
+        if channel.channel_num == channel_num:
+            return channel
+    raise RuntimeError(
+        f"No channel found for device_gid {device_gid} and channel_num {channel_num}"
+    )
+
+
+class CurrentVueAmpsSensor(CoordinatorEntity, SensorEntity):  # type: ignore
+    """Average current for a Vue channel over the last minute."""
+
+    def __init__(self, coordinator, identifier) -> None:
+        """Pass coordinator to CoordinatorEntity."""
+        super().__init__(coordinator)
+        self._id = identifier
+        self._scale: str = coordinator.data[identifier]["scale"]
+        self._device: VueDevice = coordinator.data[identifier]["info"]
+        self._channel = _channel_for_identifier(coordinator.data, identifier)
+        self._attr_has_entity_name = True
+        self._attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
+        self._attr_device_class = SensorDeviceClass.CURRENT
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_suggested_display_precision = 2
+        self._attr_name = "Current Minute Average"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return the device info."""
+        return vue_channel_device_info(self._device, self._channel)
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the average current in amps."""
+        if self._id not in self.coordinator.data:
+            return None
+        amp_hours = self.coordinator.data[self._id].get("amp_hours")
+        if amp_hours is None:
+            return None
+        return amp_hours_to_amps(amp_hours, self._scale)
+
+    @property
+    def unique_id(self) -> str:
+        """Return the Unique ID for the sensor."""
+        return (
+            "sensor.emporia_vue.amps."
+            f"{self._channel.device_gid}-{self._channel.channel_num}"
+        )
+
+
+class CurrentVueVoltsSensor(CoordinatorEntity, SensorEntity):  # type: ignore
+    """Line voltage for a Vue mains channel."""
+
+    def __init__(self, coordinator, identifier) -> None:
+        """Pass coordinator to CoordinatorEntity."""
+        super().__init__(coordinator)
+        self._id = identifier
+        self._device: VueDevice = coordinator.data[identifier]["info"]
+        self._channel = _channel_for_identifier(coordinator.data, identifier)
+        self._attr_has_entity_name = True
+        self._attr_native_unit_of_measurement = UnitOfElectricPotential.VOLT
+        self._attr_device_class = SensorDeviceClass.VOLTAGE
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_suggested_display_precision = 1
+        self._attr_name = "Voltage"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return the device info."""
+        return vue_channel_device_info(self._device, self._channel)
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the line voltage."""
+        if self._id not in self.coordinator.data:
+            return None
+        return self.coordinator.data[self._id].get("volts")
+
+    @property
+    def unique_id(self) -> str:
+        """Return the Unique ID for the sensor."""
+        return (
+            "sensor.emporia_vue.volts."
+            f"{self._channel.device_gid}-{self._channel.channel_num}"
+        )
+
+
+class VueEnergyCostSensor(CoordinatorEntity, SensorEntity):  # type: ignore
+    """Monetary cost derived from a Vue energy reading."""
+
+    def __init__(
+        self,
+        coordinator,
+        identifier,
+        cost_per_kwh: float,
+        currency: str,
+    ) -> None:
+        """Pass coordinator to CoordinatorEntity."""
+        super().__init__(coordinator)
+        self._id = identifier
+        self._scale: str = coordinator.data[identifier]["scale"]
+        self._device: VueDevice = coordinator.data[identifier]["info"]
+        self._channel = _channel_for_identifier(coordinator.data, identifier)
+        self._cost_per_kwh = cost_per_kwh
+        self._attr_has_entity_name = True
+        self._attr_device_class = SensorDeviceClass.MONETARY
+        self._attr_state_class = SensorStateClass.TOTAL
+        self._attr_native_unit_of_measurement = currency
+        self._attr_suggested_display_precision = 2
+        period = "Today" if self._scale == Scale.DAY.value else "This Month"
+        self._attr_name = f"Cost {period}"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return the device info."""
+        return vue_channel_device_info(self._device, self._channel)
+
+    @property
+    def last_reset(self) -> datetime | None:
+        """Reset time of the daily/monthly cost sensor."""
+        if self._id in self.coordinator.data:
+            return self.coordinator.data[self._id]["reset"]
+        return None
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the cost for the current energy total."""
+        if self._id not in self.coordinator.data:
+            return None
+        usage = self.coordinator.data[self._id]["usage"]
+        if usage is None:
+            return None
+        return energy_cost(usage, self._cost_per_kwh)
+
+    @property
+    def unique_id(self) -> str:
+        """Return the Unique ID for the sensor."""
+        return (
+            f"sensor.emporia_vue.cost.{self._scale}."
+            f"{self._channel.device_gid}-{self._channel.channel_num}"
+        )
 
 
 class EmporiaUpdateTelemetrySensor(SensorEntity):

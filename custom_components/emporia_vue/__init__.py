@@ -20,7 +20,7 @@ from pyemvue.device import (
     VueDeviceChannelUsage,
     VueUsageDevice,
 )
-from pyemvue.enums import Scale
+from pyemvue.enums import Scale, Unit
 import requests
 import voluptuous as vol
 
@@ -41,13 +41,19 @@ from .const import (
     AUTH_METHOD_EMAIL_PASSWORD,
     AUTH_METHOD_TOKENS,
     CONF_ACCESS_TOKEN,
+    CONF_COST_CURRENCY,
+    CONF_COST_PER_KWH,
     CONF_ID_TOKEN,
     CONF_REFRESH_TOKEN,
     CONFIG_FLOW_SCHEMA,
+    DEFAULT_COST_CURRENCY,
+    DEFAULT_COST_PER_KWH,
     DOMAIN,
     ENABLE_1D,
     ENABLE_1M,
     ENABLE_1MON,
+    ENABLE_AMPS,
+    ENABLE_VOLTS,
     SOLAR_INVERT,
     VUE_DATA,
 )
@@ -232,7 +238,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             This is the place to pre-process the data to lookup tables
             so entities can quickly look up their data.
             """
-            data: dict = await update_sensors(vue, [Scale.MINUTE.value])
+            extra_units: list[str] = []
+            if entry_data.get(ENABLE_AMPS, False):
+                extra_units.append(Unit.AMPHOURS.value)
+            if entry_data.get(ENABLE_VOLTS, False):
+                extra_units.append(Unit.VOLTS.value)
+            data: dict = await update_sensors(
+                vue, [Scale.MINUTE.value], extra_units=extra_units
+            )
             # store this, then have the daily sensors pull from it and integrate
             # then the daily can "true up" hourly (or more frequent) in case it's incorrect
             if data:
@@ -543,6 +556,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "coordinator_device_status": coordinator_device_status,
         "device_information": DEVICE_INFORMATION,
         "retry_update_methods": retry_update_methods,
+        ENABLE_AMPS: entry_data.get(ENABLE_AMPS, False),
+        ENABLE_VOLTS: entry_data.get(ENABLE_VOLTS, False),
+        CONF_COST_PER_KWH: float(
+            entry_data.get(CONF_COST_PER_KWH, DEFAULT_COST_PER_KWH)
+        ),
+        CONF_COST_CURRENCY: entry_data.get(
+            CONF_COST_CURRENCY, DEFAULT_COST_CURRENCY
+        ),
     }
 
     try:
@@ -570,7 +591,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return unload_ok
 
 
-async def update_sensors(vue: PyEmVue, scales: list[str]) -> dict:
+async def update_sensors(
+    vue: PyEmVue,
+    scales: list[str],
+    extra_units: list[str] | None = None,
+) -> dict:
     """Fetch data from API endpoint."""
     try:
         # Note: asyncio.TimeoutError and aiohttp.ClientError are already
@@ -598,6 +623,10 @@ async def update_sensors(vue: PyEmVue, scales: list[str]) -> dict:
                     utcnow,
                     data_time,
                 )
+                if extra_units and scale == Scale.MINUTE.value:
+                    await merge_extra_unit_readings(
+                        vue, extra_units, utcnow, scale, data
+                    )
             else:
                 raise UpdateFailed(f"No channels found during update for scale {scale}")
 
@@ -605,6 +634,58 @@ async def update_sensors(vue: PyEmVue, scales: list[str]) -> dict:
     except Exception as err:
         _LOGGER.debug("Error communicating with Emporia API", exc_info=True)
         raise UpdateFailed(f"Error communicating with Emporia API: {err}") from err
+
+
+def extra_unit_field(unit: str) -> str | None:
+    """Return the coordinator field name for an extra usage unit."""
+    if unit == Unit.AMPHOURS.value:
+        return "amp_hours"
+    if unit == Unit.VOLTS.value:
+        return "volts"
+    return None
+
+
+async def merge_extra_unit_readings(
+    vue: PyEmVue,
+    extra_units: list[str],
+    utcnow: datetime,
+    scale: str,
+    data: dict[str, Any],
+) -> None:
+    """Fetch AmpHours/Voltage and merge them onto the minute channel data."""
+    loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
+    for unit in extra_units:
+        field = extra_unit_field(unit)
+        if not field:
+            continue
+        usage_dict: dict[int, VueUsageDevice] = await loop.run_in_executor(
+            None,
+            partial(vue.get_device_list_usage, DEVICE_GIDS, utcnow, scale, unit),
+        )
+        if not usage_dict:
+            _LOGGER.warning("No channels found during %s update for scale %s", unit, scale)
+            continue
+        flattened, data_time = flatten_usage_data(usage_dict, scale)
+        for identifier, channel in flattened.items():
+            if identifier in data:
+                data[identifier][field] = channel.usage
+                continue
+            await handle_special_channels_for_device(channel)
+            info = DEVICE_INFORMATION.get(channel.device_gid)
+            if not info:
+                continue
+            local_time = await change_time_to_local(data_time, info.time_zone)
+            data[identifier] = {
+                "device_gid": channel.device_gid,
+                "channel_num": channel.channel_num,
+                "usage": None,
+                field: channel.usage,
+                "scale": scale,
+                "info": info,
+                "reset": None,
+                "timestamp": local_time,
+                "has_energy": False,
+            }
 
 
 def flatten_usage_data(
@@ -702,6 +783,7 @@ async def parse_flattened_usage_data(
                 "info": info,
                 "reset": reset_datetime,
                 "timestamp": local_time,
+                "has_energy": True,
             }
     if unused_data:
         # unused_data is not json serializable because VueDeviceChannelUsage

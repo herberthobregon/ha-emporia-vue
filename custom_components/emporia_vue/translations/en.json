@@ -27,7 +27,11 @@
                     "enable_1d": "Energy Today Sensor",
                     "enable_1m": "Power Minute Average Sensor",
                     "enable_1mon": "Energy This Month Sensor",
-                    "solar_invert": "Invert Values for Solar Circuits"
+                    "enable_amps": "Current Minute Average Sensor",
+                    "enable_volts": "Line Voltage Sensor",
+                    "solar_invert": "Invert Values for Solar Circuits",
+                    "cost_per_kwh": "Cost per kWh",
+                    "cost_currency": "Cost Currency"
                 }
             },
             "user": {
@@ -41,8 +45,12 @@
                     "enable_1d": "Energy Today Sensor",
                     "enable_1m": "Power Minute Average Sensor",
                     "enable_1mon": "Energy This Month Sensor",
+                    "enable_amps": "Current Minute Average Sensor",
+                    "enable_volts": "Line Voltage Sensor",
                     "password": "Password",
-                    "solar_invert": "Invert Values for Solar Circuits"
+                    "solar_invert": "Invert Values for Solar Circuits",
+                    "cost_per_kwh": "Cost per kWh",
+                    "cost_currency": "Cost Currency"
                 }
             },
             "tokens": {
@@ -51,9 +59,13 @@
                     "enable_1d": "Energy Today Sensor",
                     "enable_1m": "Power Minute Average Sensor",
                     "enable_1mon": "Energy This Month Sensor",
+                    "enable_amps": "Current Minute Average Sensor",
+                    "enable_volts": "Line Voltage Sensor",
                     "id_token": "ID token",
                     "refresh_token": "Refresh token",
-                    "solar_invert": "Invert Values for Solar Circuits"
+                    "solar_invert": "Invert Values for Solar Circuits",
+                    "cost_per_kwh": "Cost per kWh",
+                    "cost_currency": "Cost Currency"
                 },
                 "description": "Use this for Emporia accounts created with Sign in with Google or another SSO provider. Paste the Emporia tokens for the account."
             }

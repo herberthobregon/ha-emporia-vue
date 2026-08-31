@@ -19,15 +19,21 @@ from .const import (
     AUTH_METHOD_SCHEMA,
     AUTH_METHOD_TOKENS,
     CONF_ACCESS_TOKEN,
+    CONF_COST_CURRENCY,
+    CONF_COST_PER_KWH,
     CONF_ID_TOKEN,
     CONF_REFRESH_TOKEN,
     CONFIG_FLOW_SCHEMA,
     CONFIG_TITLE,
     CUSTOMER_GID,
+    DEFAULT_COST_CURRENCY,
+    DEFAULT_COST_PER_KWH,
     DOMAIN,
     ENABLE_1D,
     ENABLE_1M,
     ENABLE_1MON,
+    ENABLE_AMPS,
+    ENABLE_VOLTS,
     SOLAR_INVERT,
     TOKEN_CONFIG_FLOW_SCHEMA,
 )
@@ -118,7 +124,15 @@ async def validate_input(data: dict | Mapping[str, Any]) -> dict[str, Any]:
         ENABLE_1M: new_data[ENABLE_1M],
         ENABLE_1D: new_data[ENABLE_1D],
         ENABLE_1MON: new_data[ENABLE_1MON],
+        ENABLE_AMPS: new_data.get(ENABLE_AMPS, True),
+        ENABLE_VOLTS: new_data.get(ENABLE_VOLTS, True),
         SOLAR_INVERT: new_data[SOLAR_INVERT],
+        CONF_COST_PER_KWH: float(
+            new_data.get(CONF_COST_PER_KWH, DEFAULT_COST_PER_KWH)
+        ),
+        CONF_COST_CURRENCY: new_data.get(
+            CONF_COST_CURRENCY, DEFAULT_COST_CURRENCY
+        ),
         AUTH_METHOD: new_data[AUTH_METHOD],
     }
     if new_data[AUTH_METHOD] == AUTH_METHOD_TOKENS:
@@ -246,7 +260,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ENABLE_1M: user_input[ENABLE_1M],
                 ENABLE_1D: user_input[ENABLE_1D],
                 ENABLE_1MON: user_input[ENABLE_1MON],
+                ENABLE_AMPS: user_input[ENABLE_AMPS],
+                ENABLE_VOLTS: user_input[ENABLE_VOLTS],
                 SOLAR_INVERT: user_input[SOLAR_INVERT],
+                CONF_COST_PER_KWH: float(user_input[CONF_COST_PER_KWH]),
+                CONF_COST_CURRENCY: user_input[CONF_COST_CURRENCY],
                 CUSTOMER_GID: info[CUSTOMER_GID],
                 CONFIG_TITLE: info[CONFIG_TITLE],
             }
@@ -272,6 +290,26 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 SOLAR_INVERT,
                 default=current_config.data.get(SOLAR_INVERT, True),
             ): cv.boolean,
+            vol.Optional(
+                ENABLE_AMPS,
+                default=current_config.data.get(ENABLE_AMPS, False),
+            ): cv.boolean,
+            vol.Optional(
+                ENABLE_VOLTS,
+                default=current_config.data.get(ENABLE_VOLTS, False),
+            ): cv.boolean,
+            vol.Optional(
+                CONF_COST_PER_KWH,
+                default=current_config.data.get(
+                    CONF_COST_PER_KWH, DEFAULT_COST_PER_KWH
+                ),
+            ): vol.All(vol.Coerce(float), vol.Range(min=0)),
+            vol.Optional(
+                CONF_COST_CURRENCY,
+                default=current_config.data.get(
+                    CONF_COST_CURRENCY, DEFAULT_COST_CURRENCY
+                ),
+            ): cv.string,
         }
 
         return self.async_show_form(
