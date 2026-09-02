@@ -31,7 +31,14 @@ from .const import (
     ENABLE_AMPS,
     ENABLE_VOLTS,
 )
-from .metrics import amp_hours_to_amps, energy_cost, is_line_voltage_channel
+from .metrics import (
+    amp_hours_to_amps,
+    energy_cost,
+    is_line_voltage_channel,
+    is_phase_channel,
+    vue_channel_device_id,
+    vue_channel_device_name,
+)
 from .resilience import TolerantUpdateMethod
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
@@ -242,21 +249,13 @@ def vue_channel_device_info(
     device: VueDevice, channel: VueDeviceChannel
 ) -> DeviceInfo:
     """Return the Home Assistant device info for a Vue channel."""
-    device_name = channel.name
-    if not device_name:
-        # An unnamed *numbered* channel is a CT that has not been configured
-        # in the Emporia app. Falling back to the monitor's name gives every
-        # such channel an identical name, so a Vue with spare channels shows
-        # up as a pile of same-named devices (#379, #328).
-        # Aggregate channels ("1,2,3", MainsFromGrid, Balance, ...) legitimately
-        # represent the monitor itself, so those keep the monitor's name.
-        if channel.channel_num.isdigit():
-            device_name = f"{device.device_name} Circuit {channel.channel_num}"
-        else:
-            device_name = device.device_name
     return DeviceInfo(
-        identifiers={(DOMAIN, f"{device.device_gid}-{channel.channel_num}")},
-        name=device_name,
+        identifiers={
+            (DOMAIN, vue_channel_device_id(device.device_gid, channel.channel_num))
+        },
+        name=vue_channel_device_name(
+            device.device_name, channel.channel_num, channel.name
+        ),
         model=device.model,
         sw_version=device.firmware,
         manufacturer="Emporia",
@@ -291,7 +290,10 @@ class CurrentVueAmpsSensor(CoordinatorEntity, SensorEntity):  # type: ignore
         self._attr_device_class = SensorDeviceClass.CURRENT
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_suggested_display_precision = 2
-        self._attr_name = "Current Minute Average"
+        if is_phase_channel(self._channel.channel_num):
+            self._attr_name = f"{self._channel.channel_num} Current"
+        else:
+            self._attr_name = "Current Minute Average"
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -331,7 +333,10 @@ class CurrentVueVoltsSensor(CoordinatorEntity, SensorEntity):  # type: ignore
         self._attr_device_class = SensorDeviceClass.VOLTAGE
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_suggested_display_precision = 1
-        self._attr_name = "Voltage"
+        if is_phase_channel(self._channel.channel_num):
+            self._attr_name = f"{self._channel.channel_num} Voltage"
+        else:
+            self._attr_name = "Voltage"
 
     @property
     def device_info(self) -> DeviceInfo:
