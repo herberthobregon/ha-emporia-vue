@@ -32,6 +32,15 @@ def test_line_voltage_channels_are_mains_only() -> None:
     assert not METRICS.is_line_voltage_channel("Balance")
 
 
+def test_phase_channels_have_no_energy_or_cost_entities() -> None:
+    """Mains_A/B only expose current and voltage, not energy or cost."""
+    assert not METRICS.has_energy_entities("Mains_A")
+    assert not METRICS.has_energy_entities("Mains_B")
+    assert METRICS.has_energy_entities("1,2,3")
+    assert METRICS.has_energy_entities("Balance")
+    assert METRICS.has_energy_entities("9")
+
+
 def test_phase_channels_are_mains_a_and_b() -> None:
     """Only Mains_A and Mains_B attach to the monitor device."""
     assert METRICS.is_phase_channel("Mains_A")

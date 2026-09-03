@@ -34,6 +34,7 @@ from .const import (
 from .metrics import (
     amp_hours_to_amps,
     energy_cost,
+    has_energy_entities,
     is_line_voltage_channel,
     is_phase_channel,
     vue_channel_device_id,
@@ -91,24 +92,30 @@ async def async_setup_entry(
         async_add_entities(
             CurrentVuePowerSensor(coordinator_1mon, identifier)
             for identifier in coordinator_1mon.data
+            if has_energy_entities(coordinator_1mon.data[identifier]["channel_num"])
         )
         async_add_entities(
             VueEnergyCostSensor(
                 coordinator_1mon, identifier, cost_per_kwh, cost_currency
             )
             for identifier in coordinator_1mon.data
+            if has_energy_entities(coordinator_1mon.data[identifier]["channel_num"])
         )
 
     if coordinator_day_sensor:
         async_add_entities(
             CurrentVuePowerSensor(coordinator_day_sensor, identifier)
             for identifier in coordinator_day_sensor.data
+            if has_energy_entities(coordinator_day_sensor.data[identifier]["channel_num"])
         )
         async_add_entities(
             VueEnergyCostSensor(
                 coordinator_day_sensor, identifier, cost_per_kwh, cost_currency
             )
             for identifier in coordinator_day_sensor.data
+            if has_energy_entities(
+                coordinator_day_sensor.data[identifier]["channel_num"]
+            )
         )
 
     retry_update_methods: dict[str, TolerantUpdateMethod] = hass.data[DOMAIN][
@@ -241,7 +248,7 @@ class CurrentVuePowerSensor(CoordinatorEntity, SensorEntity):  # type: ignore
         if self._scale == Scale.DAY.value:
             return "Today"
         if self._scale == Scale.MONTH.value:
-            return "This Month"
+            return "Billing Cycle"
         return self._scale
 
 
@@ -381,7 +388,7 @@ class VueEnergyCostSensor(CoordinatorEntity, SensorEntity):  # type: ignore
         self._attr_state_class = SensorStateClass.TOTAL
         self._attr_native_unit_of_measurement = currency
         self._attr_suggested_display_precision = 2
-        period = "Today" if self._scale == Scale.DAY.value else "This Month"
+        period = "Today" if self._scale == Scale.DAY.value else "Billing Cycle"
         self._attr_name = f"Cost {period}"
 
     @property

@@ -21,7 +21,7 @@
   reports AmpHours. Conversion is `A = Ah × 60` for 1-minute readings.
 - Optional **Voltage** sensors on Main (`1,2,3`) and the split-phase channels
   `Mains_A` / `Mains_B` only. Circuit CTs do not get a voltage entity.
-- **Cost Today** and **Cost This Month** sensors: `kWh × cost_per_kwh`,
+- **Cost Today** and **Cost Billing Cycle** sensors: `kWh × cost_per_kwh`,
   calculated locally (not from the Emporia dollars API).
 - Setup and reconfigure options:
   - Current Minute Average Sensor (`enable_amps`)
@@ -40,6 +40,9 @@
 - **Mains_A** and **Mains_B** are no longer separate devices. They attach to
   the same device as Main (`{gid}-1,2,3`). Entity names are `Mains_A Current`,
   `Mains_B Current`, `Mains_A Voltage`, and `Mains_B Voltage`. Main itself
-  still uses `Current Minute Average` and `Voltage`.
+  still uses `Current Minute Average` and `Voltage`. Phase channels do not
+  get Energy Today / Energy Billing Cycle or Cost Today / Cost Billing Cycle.
+- Monthly energy and cost entities are named **Billing Cycle** (not This Month),
+  matching the Emporia billing-cycle reset. Unique IDs are unchanged.
 - After a reload, leftover devices named `Mains_A`, `Mains_B`, or `Balance`
   may remain in the device registry. They can be deleted manually.

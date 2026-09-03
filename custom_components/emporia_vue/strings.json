@@ -12,7 +12,7 @@
           "password": "[%key:common::config_flow::data::password%]",
           "enable_1m": "Power Minute Average Sensor",
           "enable_1d": "Energy Today Sensor",
-          "enable_1mon": "Energy This Month Sensor",
+          "enable_1mon": "Energy Billing Cycle Sensor",
           "enable_amps": "Current Minute Average Sensor",
           "enable_volts": "Line Voltage Sensor",
           "solar_invert": "Invert Values for Solar Circuits",

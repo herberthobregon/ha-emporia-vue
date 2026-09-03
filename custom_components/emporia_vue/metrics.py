@@ -33,6 +33,11 @@ def is_phase_channel(channel_num: str) -> bool:
     return channel_num in PHASE_CHANNEL_NUMS
 
 
+def has_energy_entities(channel_num: str) -> bool:
+    """Return True if Energy and Cost day/month sensors belong on this channel."""
+    return not is_phase_channel(channel_num)
+
+
 def vue_channel_device_id(device_gid: int | str, channel_num: str) -> str:
     """Return the Home Assistant device identifier suffix for a channel."""
     if is_phase_channel(channel_num):

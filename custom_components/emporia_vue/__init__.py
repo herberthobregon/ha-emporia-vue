@@ -2,28 +2,17 @@
 
 import asyncio
 import calendar
+import logging
+import re
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta, tzinfo
 from functools import partial
-import logging
-import re
 from typing import Any
 
 import dateutil.relativedelta
 import dateutil.tz
-from pyemvue import PyEmVue
-from pyemvue.device import (
-    ChargerDevice,
-    OutletDevice,
-    VueDevice,
-    VueDeviceChannel,
-    VueDeviceChannelUsage,
-    VueUsageDevice,
-)
-from pyemvue.enums import Scale, Unit
 import requests
 import voluptuous as vol
-
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant, State
@@ -35,6 +24,16 @@ from homeassistant.exceptions import (
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from pyemvue import PyEmVue
+from pyemvue.device import (
+    ChargerDevice,
+    OutletDevice,
+    VueDevice,
+    VueDeviceChannel,
+    VueDeviceChannelUsage,
+    VueUsageDevice,
+)
+from pyemvue.enums import Scale, Unit
 
 from .const import (
     AUTH_METHOD,
@@ -57,12 +56,9 @@ from .const import (
     SOLAR_INVERT,
     VUE_DATA,
 )
+from .metrics import has_energy_entities
 from .pycognito_compat import apply_pycognito_at_hash_compat
-from .resilience import (
-    TolerantUpdateMethod,
-    is_newer_sample,
-    minute_usage_to_integrate,
-)
+from .resilience import TolerantUpdateMethod, is_newer_sample, minute_usage_to_integrate
 
 apply_pycognito_at_hash_compat()
 
@@ -188,7 +184,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.error("Failed to login to Emporia Vue: %s", err)
         raise ConfigEntryAuthFailed("Failed to login to Emporia Vue") from err
 
-    if entry_data.get(AUTH_METHOD) == AUTH_METHOD_TOKENS and vue.auth and vue.auth.tokens:
+    if (
+        entry_data.get(AUTH_METHOD) == AUTH_METHOD_TOKENS
+        and vue.auth
+        and vue.auth.tokens
+    ):
         # Persist the tokens refreshed during login back to the config entry so
         # that the stored tokens stay current across restarts.
         hass.config_entries.async_update_entry(
@@ -298,7 +298,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             global LAST_MONTH_UPDATE
             global LAST_MONTH_DATA
             now: datetime = datetime.now(UTC)
-            if not LAST_MONTH_UPDATE or (now - LAST_MONTH_UPDATE) > timedelta(minutes=30):
+            if not LAST_MONTH_UPDATE or (now - LAST_MONTH_UPDATE) > timedelta(
+                minutes=30
+            ):
                 _LOGGER.info("Updating month sensors")
                 LAST_MONTH_UPDATE = now
                 updated_month_data = await update_sensors(vue, [Scale.MONTH.value])
@@ -314,7 +316,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 if LAST_MINUTE_DATA:
                     for identifier, data in LAST_MINUTE_DATA.items():
                         device_gid, channel_gid, _ = identifier.split("-")
-                        month_id: str = f"{device_gid}-{channel_gid}-{Scale.MONTH.value}"
+                        month_id: str = (
+                            f"{device_gid}-{channel_gid}-{Scale.MONTH.value}"
+                        )
                         minute_usage = minute_usage_to_integrate(data)
                         if (
                             minute_usage is not None
@@ -329,7 +333,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 LAST_MONTH_INTEGRATED_MINUTE, month_id, timestamp
                             ):
                                 continue
-                            await check_for_new_month(timestamp, int(device_gid), month_id)
+                            await check_for_new_month(
+                                timestamp, int(device_gid), month_id
+                            )
 
                             LAST_MONTH_DATA[month_id]["usage"] += minute_usage
                             LAST_MONTH_INTEGRATED_MINUTE[month_id] = timestamp
@@ -402,8 +408,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # Check if any devices have outlets or chargers
         has_controllable_devices = any(
-            device.outlet or device.ev_charger
-            for device in DEVICE_INFORMATION.values()
+            device.outlet or device.ev_charger for device in DEVICE_INFORMATION.values()
         )
 
         async def async_update_device_status() -> dict[str, Any]:
@@ -413,7 +418,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 outlets: list[OutletDevice]
                 chargers: list[ChargerDevice]
 
-                outlets, chargers = await hass.async_add_executor_job(vue.get_devices_status)
+                outlets, chargers = await hass.async_add_executor_job(
+                    vue.get_devices_status
+                )
 
                 if outlets:
                     for outlet in outlets:
@@ -423,7 +430,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         data[str(charger.device_gid)] = charger
                 return data
             except Exception as err:
-                raise UpdateFailed(f"Error communicating with Emporia API: {err}") from err
+                raise UpdateFailed(
+                    f"Error communicating with Emporia API: {err}"
+                ) from err
 
         coordinator_device_status = None
         if has_controllable_devices:
@@ -561,9 +570,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         CONF_COST_PER_KWH: float(
             entry_data.get(CONF_COST_PER_KWH, DEFAULT_COST_PER_KWH)
         ),
-        CONF_COST_CURRENCY: entry_data.get(
-            CONF_COST_CURRENCY, DEFAULT_COST_CURRENCY
-        ),
+        CONF_COST_CURRENCY: entry_data.get(CONF_COST_CURRENCY, DEFAULT_COST_CURRENCY),
     }
 
     try:
@@ -663,7 +670,9 @@ async def merge_extra_unit_readings(
             partial(vue.get_device_list_usage, DEVICE_GIDS, utcnow, scale, unit),
         )
         if not usage_dict:
-            _LOGGER.warning("No channels found during %s update for scale %s", unit, scale)
+            _LOGGER.warning(
+                "No channels found during %s update for scale %s", unit, scale
+            )
             continue
         flattened, data_time = flatten_usage_data(usage_dict, scale)
         for identifier, channel in flattened.items():
@@ -783,7 +792,7 @@ async def parse_flattened_usage_data(
                 "info": info,
                 "reset": reset_datetime,
                 "timestamp": local_time,
-                "has_energy": True,
+                "has_energy": has_energy_entities(channel_num),
             }
     if unused_data:
         # unused_data is not json serializable because VueDeviceChannelUsage
