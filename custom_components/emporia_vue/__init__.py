@@ -58,7 +58,11 @@ from .const import (
     VUE_DATA,
 )
 from .pycognito_compat import apply_pycognito_at_hash_compat
-from .resilience import TolerantUpdateMethod, is_newer_sample
+from .resilience import (
+    TolerantUpdateMethod,
+    is_newer_sample,
+    minute_usage_to_integrate,
+)
 
 apply_pycognito_at_hash_compat()
 
@@ -270,13 +274,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     for identifier, data in LAST_MINUTE_DATA.items():
                         device_gid, channel_gid, _ = identifier.split("-")
                         day_id: str = f"{device_gid}-{channel_gid}-{Scale.DAY.value}"
+                        minute_usage = minute_usage_to_integrate(data)
                         if (
-                            data
+                            minute_usage is not None
                             and LAST_DAY_DATA
                             and day_id in LAST_DAY_DATA
                             and LAST_DAY_DATA[day_id]
-                            and "usage" in LAST_DAY_DATA[day_id]
-                            and LAST_DAY_DATA[day_id]["usage"] is not None
+                            and LAST_DAY_DATA[day_id].get("usage") is not None
                         ):
                             # if we just passed midnight, then reset back to zero
                             timestamp: datetime = data["timestamp"]
@@ -286,9 +290,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 continue
                             await check_for_midnight(timestamp, int(device_gid), day_id)
 
-                            LAST_DAY_DATA[day_id]["usage"] += data[
-                                "usage"
-                            ]  # already in kwh
+                            LAST_DAY_DATA[day_id]["usage"] += minute_usage
                             LAST_DAY_INTEGRATED_MINUTE[day_id] = timestamp
             return LAST_DAY_DATA
 
@@ -313,13 +315,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     for identifier, data in LAST_MINUTE_DATA.items():
                         device_gid, channel_gid, _ = identifier.split("-")
                         month_id: str = f"{device_gid}-{channel_gid}-{Scale.MONTH.value}"
+                        minute_usage = minute_usage_to_integrate(data)
                         if (
-                            data
+                            minute_usage is not None
                             and LAST_MONTH_DATA
                             and month_id in LAST_MONTH_DATA
                             and LAST_MONTH_DATA[month_id]
-                            and "usage" in LAST_MONTH_DATA[month_id]
-                            and LAST_MONTH_DATA[month_id]["usage"] is not None
+                            and LAST_MONTH_DATA[month_id].get("usage") is not None
                         ):
                             # if we just passed the billing cycle start, reset back to zero
                             timestamp: datetime = data["timestamp"]
@@ -329,9 +331,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 continue
                             await check_for_new_month(timestamp, int(device_gid), month_id)
 
-                            LAST_MONTH_DATA[month_id]["usage"] += data[
-                                "usage"
-                            ]  # already in kwh
+                            LAST_MONTH_DATA[month_id]["usage"] += minute_usage
                             LAST_MONTH_INTEGRATED_MINUTE[month_id] = timestamp
             return LAST_MONTH_DATA
 

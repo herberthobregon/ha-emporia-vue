@@ -22,6 +22,20 @@ def is_newer_sample(
     return previous_timestamp is None or timestamp > previous_timestamp
 
 
+def minute_usage_to_integrate(data: dict | None) -> float | None:
+    """Return kWh from a minute sample that can be added into a day or month total.
+
+    Amp/volt-only channels (Mains_A/B) and missing kWh readings have usage None
+    and must not be added into period totals.
+    """
+    if not data or not data.get("has_energy", True):
+        return None
+    usage = data.get("usage")
+    if usage is None:
+        return None
+    return usage
+
+
 class TolerantUpdateMethod(Generic[_DataT]):
     """Reuse the last successful result during a bounded run of failures."""
 

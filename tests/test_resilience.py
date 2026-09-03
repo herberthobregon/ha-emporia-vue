@@ -20,6 +20,7 @@ RESILIENCE = module_from_spec(SPEC)
 SPEC.loader.exec_module(RESILIENCE)
 TolerantUpdateMethod = RESILIENCE.TolerantUpdateMethod
 is_newer_sample = RESILIENCE.is_newer_sample
+minute_usage_to_integrate = RESILIENCE.minute_usage_to_integrate
 
 
 class RecoverableError(Exception):
@@ -154,6 +155,17 @@ def test_rejects_negative_tolerance() -> None:
             recoverable_exceptions=(RecoverableError,),
             tolerated_failures=-1,
         )
+
+
+def test_skips_minute_samples_without_kwh() -> None:
+    """Amp/volt-only channels and missing kWh must not be added into day/month totals."""
+    assert minute_usage_to_integrate(None) is None
+    assert minute_usage_to_integrate({"usage": None, "has_energy": False}) is None
+    assert minute_usage_to_integrate({"usage": None, "has_energy": True}) is None
+    assert minute_usage_to_integrate({"has_energy": True}) is None
+    assert minute_usage_to_integrate({"usage": 0.012, "has_energy": False}) is None
+    assert minute_usage_to_integrate({"usage": 0.012, "has_energy": True}) == 0.012
+    assert minute_usage_to_integrate({"usage": 0.012}) == 0.012
 
 
 def test_only_integrates_newer_minute_samples() -> None:
